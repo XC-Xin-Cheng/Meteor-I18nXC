@@ -1,0 +1,42 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+    mavenCentral()
+    // Meteor 本体只作为编译期前置：harness 会把 meteor-client 的 API 一起编进来做类型检查，
+    // 但不会打进我们的 jar。运行时由用户已安装的 Meteor 本体提供。
+    maven { url = 'https://maven.meteordev.org/releases' }
+    maven { url = 'https://maven.meteordev.org/snapshots' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+    compileOnly "meteordevelopment:meteor-client:${project.meteor_version}"
+}
+
+processResources {
+    inputs.property "version", project.version
+    // filter 同样按 filteringCharset 读写，不显式设成 UTF-8 时取平台默认
+    // （容器里常是 ASCII），会把 description 里的中文破坏成非法 UTF-8：
+    // Gradle 仍报 BUILD SUCCESSFUL，但最终 JAR 里的 JSON 已经坏了。
+    filteringCharset = 'UTF-8'
+    // 只替换版本占位符。Gradle expand 会把 JSON 字符串里的 \n 解释成真实换行，
+    // 造成源文件合法、最终 JAR 中 fabric.mod.json 却损坏。
+    filesMatching("fabric.mod.json") {
+        filter { line -> line.replace('${version}', project.version.toString()) }
+    }
+}
+
+// 本工程是 Meteor 附加模组：meteor-client 26.1.2 的构建元数据明确要求 JVM 25，
+// 且 26.x 的 Minecraft 本身也跑在 Java 25 上，所以字节码目标只能是 25。
+// （1.21.1 - 1.21.5 的 Meteor 走 intermediary/混淆名，26.x 走官方名，
+// 同一份含 mixin 的代码无法两个版本族共用；跨版本的汉化键数据仍全部保留在 lang 里。）
+tasks.withType(JavaCompile).configureEach { options.release = 25; options.encoding = 'UTF-8' }
+java { toolchain.languageVersion = JavaLanguageVersion.of(25); withSourcesJar() }
+base { archivesName = project.archives_base_name }
